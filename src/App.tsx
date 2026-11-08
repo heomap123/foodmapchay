@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   buildLocationLabel,
   getDistrictOptions,
@@ -8,6 +9,7 @@ import {
   type LocationSelection,
 } from './services/location';
 import { useAuth } from './AuthContext';
+import { fetchFavoritePlaces, fetchProfileById, fetchUserStats, type UserProfile } from './services/profile';
 
 interface RestaurantRecommendation {
   id: string;
@@ -253,9 +255,38 @@ function buildDirectionsUrl(place: RestaurantRecommendation): string {
 
 export default function App() {
   const { user, signOut } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [showExplore, setShowExplore] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+
+  const activeFeature = useMemo(() => {
+    switch (location.pathname) {
+      case '/explore':
+        return 'explore';
+      case '/community':
+        return 'community';
+      case '/feed':
+        return 'feed';
+      case '/events':
+        return 'events';
+      case '/saved':
+        return 'saved';
+      case '/profile':
+        return 'profile';
+      default:
+        return 'home';
+    }
+  }, [location.pathname]);
+
+  useEffect(() => {
+    setShowExplore(activeFeature === 'explore');
+    setShowProfile(activeFeature === 'profile');
+  }, [activeFeature]);
+  const [profileStats, setProfileStats] = useState({ followers: 0, following: 0 });
+  const [favoritePlaces, setFavoritePlaces] = useState<Array<{ place_id: string; place_name: string | null; place_image: string | null }>>([]);
   const [locationSelection, setLocationSelection] = useState<LocationSelection>({
     province: 'Cần Thơ',
     district: '',
@@ -270,12 +301,52 @@ export default function App() {
     [locationSelection.district, locationSelection.province],
   );
 
+  useEffect(() => {
+    const userId = user?.id;
+
+    if (!userId) {
+      setProfile(null);
+      setFavoritePlaces([]);
+      setProfileStats({ followers: 0, following: 0 });
+      return;
+    }
+
+    let isActive = true;
+
+    async function loadProfileData() {
+      try {
+        const [profileData, stats, favorites] = await Promise.all([
+          fetchProfileById(userId),
+          fetchUserStats(userId),
+          fetchFavoritePlaces(userId),
+        ]);
+
+        if (!isActive) {
+          return;
+        }
+
+        setProfile(profileData);
+        setProfileStats(stats);
+        setFavoritePlaces(favorites);
+      } catch (error) {
+        console.error('Failed to load profile data', error);
+      }
+    }
+
+    loadProfileData();
+
+    return () => {
+      isActive = false;
+    };
+  }, [user?.id]);
+
   const currentUser = user
     ? {
         id: user.id,
         email: user.email ?? 'user@gmail.com',
-        name: user.user_metadata?.full_name ?? user.email?.split('@')[0] ?? 'Người dùng',
+        name: profile?.full_name ?? user.user_metadata?.full_name ?? user.email?.split('@')[0] ?? 'Người dùng',
         avatar:
+          profile?.avatar_url ??
           user.user_metadata?.avatar_url ??
           'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=500&q=80',
       }
@@ -324,9 +395,54 @@ export default function App() {
 
       setShowProfile(false);
       setAuthError(null);
+      navigate('/login');
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : 'Đăng xuất thất bại.');
     }
+  }
+
+  function renderFeatureRoutePanel() {
+    if (activeFeature === 'home') {
+      return null;
+    }
+
+    const featureMap: Record<string, { title: string; description: string; accent: string }> = {
+      community: {
+        title: 'Cộng đồng người ăn chay',
+        description: 'Kết nối với những người cùng đam mê ăn uống lành mạnh, chia sẻ trải nghiệm và khám phá món ngon mới mỗi ngày.',
+        accent: 'Community',
+      },
+      feed: {
+        title: 'Bảng tin LocaFood',
+        description: 'Theo dõi các bài chia sẻ, món ăn yêu thích, mẹo ăn uống và giới thiệu địa điểm mới từ cộng đồng.',
+        accent: 'Feed',
+      },
+      events: {
+        title: 'Sự kiện ẩm thực hấp dẫn',
+        description: 'Tham gia các sự kiện ăn chay, workshop ẩm thực, meetup và hội chợ thực phẩm xanh trong thành phố.',
+        accent: 'Events',
+      },
+      saved: {
+        title: 'Những món bạn đã lưu',
+        description: 'Quản lý danh sách quán ăn, món yêu thích và địa điểm bạn muốn quay lại sau này.',
+        accent: 'Saved',
+      },
+    };
+
+    const detail = featureMap[activeFeature];
+    if (!detail) {
+      return null;
+    }
+
+    return (
+      <section className="feature-route-panel" aria-label={detail.accent}>
+        <div className="feature-route-header">
+          <span>{detail.accent}</span>
+          <h3>{detail.title}</h3>
+        </div>
+        <p>{detail.description}</p>
+      </section>
+    );
   }
 
   return (
@@ -358,7 +474,7 @@ export default function App() {
 
           {currentUser && (
             <>
-              <button type="button" className="profile-auth-button" onClick={() => setShowProfile((value) => !value)}>
+              <button type="button" className="profile-auth-button" onClick={() => navigate('/profile')}>
                 <img src={currentUser.avatar} alt={currentUser.name} className="header-avatar" />
                 <span>{currentUser.name}</span>
               </button>
@@ -391,7 +507,7 @@ export default function App() {
             <span>Share</span>
           </div>
 
-          <button type="button" className="cta-button" onClick={() => setShowExplore(true)}>
+          <button type="button" className="cta-button" onClick={() => navigate('/explore')}>
             Start Exploring
             <span aria-hidden="true">→</span>
           </button>
@@ -429,14 +545,7 @@ export default function App() {
               backgroundImage: `linear-gradient(135deg, rgba(9, 29, 20, 0.18), rgba(9, 29, 20, 0.1)), url(${card.image})`,
             }}
             onClick={() => {
-              if (card.key === 'explore') {
-                setShowExplore(true);
-                setShowProfile(false);
-              }
-              if (card.key === 'profile') {
-                setShowProfile(true);
-                setShowExplore(false);
-              }
+              navigate(`/${card.key}`);
             }}
           >
             <div className="feature-copy">
@@ -447,14 +556,7 @@ export default function App() {
                 className="feature-cta"
                 onClick={(event) => {
                   event.stopPropagation();
-                  if (card.key === 'explore') {
-                    setShowExplore(true);
-                    setShowProfile(false);
-                  }
-                  if (card.key === 'profile') {
-                    setShowProfile(true);
-                    setShowExplore(false);
-                  }
+                  navigate(`/${card.key}`);
                 }}
               >
                 {card.cta}
@@ -464,6 +566,8 @@ export default function App() {
           </article>
         ))}
       </section>
+
+      {renderFeatureRoutePanel()}
 
       {showProfile && (
         <section className="profile-panel" aria-label="Profile information">
@@ -482,7 +586,7 @@ export default function App() {
               <h2>{currentUser?.name ?? 'Ho Chi Minh City'}</h2>
               <p className="profile-email">{currentUser?.email ?? 'user@gmail.com'}</p>
               <p className="profile-intro">
-                Tôi là người yêu ẩm thực chay, thích khám phá quán mới, món ngon lành mạnh và chia sẻ trải nghiệm với cộng đồng.
+                {profile?.bio ?? 'Tôi là người yêu ẩm thực chay, thích khám phá quán mới, món ngon lành mạnh và chia sẻ trải nghiệm với cộng đồng.'}
               </p>
             </div>
           </div>
@@ -490,11 +594,11 @@ export default function App() {
           <div className="profile-stats">
             <div className="stat-card">
               <span className="stat-label">Người theo dõi</span>
-              <strong>8.4K</strong>
+              <strong>{profileStats.followers}</strong>
             </div>
             <div className="stat-card">
               <span className="stat-label">Đang theo dõi</span>
-              <strong>352</strong>
+              <strong>{profileStats.following}</strong>
             </div>
           </div>
 
@@ -504,15 +608,27 @@ export default function App() {
             </div>
 
             <div className="favorite-list">
-              {profileFavorites.map((place) => (
-                <article key={place.id} className="favorite-item">
-                  <img src={place.image} alt={place.name} />
-                  <div className="favorite-copy">
-                    <strong>{place.name}</strong>
-                    <span>{place.type}</span>
-                  </div>
-                </article>
-              ))}
+              {favoritePlaces.length > 0 ? (
+                favoritePlaces.map((place) => (
+                  <article key={place.place_id} className="favorite-item">
+                    <img src={place.place_image ?? profileFavorites[0].image} alt={place.place_name ?? 'Quán yêu thích'} />
+                    <div className="favorite-copy">
+                      <strong>{place.place_name ?? 'Quán yêu thích'}</strong>
+                      <span>Đã lưu</span>
+                    </div>
+                  </article>
+                ))
+              ) : (
+                profileFavorites.map((place) => (
+                  <article key={place.id} className="favorite-item">
+                    <img src={place.image} alt={place.name} />
+                    <div className="favorite-copy">
+                      <strong>{place.name}</strong>
+                      <span>{place.type}</span>
+                    </div>
+                  </article>
+                ))
+              )}
             </div>
           </div>
         </section>

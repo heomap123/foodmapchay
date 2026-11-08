@@ -73,7 +73,7 @@ async function fetchJson<T>(
 ): Promise<T> {
   if (signal?.aborted) throw abortError();
   const controller = new AbortController();
-  const timer = globalThis.setTimeout(() => controller.abort(), 15_000);
+  const timer = globalThis.setTimeout(() => controller.abort(), 45_000);
   const onAbort = () => controller.abort();
   signal?.addEventListener('abort', onAbort, { once: true });
 
@@ -153,6 +153,7 @@ function makePlace(input: {
     distance: 0,
     osmType: input.osmType || '',
     osmId: input.osmId,
+    tags,
   };
 }
 
@@ -399,11 +400,18 @@ export async function searchPlaceSuggestions(
 function overpassQuery(center: Coordinates, radius: number, type: FoodType | 'all'): string {
   const location = `${center.lat},${center.lng}`;
   if (type === 'vegetarian') {
-    const amenities = 'restaurant|fast_food|food_court';
-    return `[out:json][timeout:12];(node["amenity"~"^(${amenities})$"]["cuisine"~"(^|;)(vegetarian|vegan)(;|$)",i](around:${radius},${location});way["amenity"~"^(${amenities})$"]["cuisine"~"(^|;)(vegetarian|vegan)(;|$)",i](around:${radius},${location});node["amenity"~"^(${amenities})$"]["name"~"chay|vegetarian|vegan",i](around:${radius},${location});way["amenity"~"^(${amenities})$"]["name"~"chay|vegetarian|vegan",i](around:${radius},${location}););out center tags 60;`;
+    return `[out:json][timeout:25];(
+      node["amenity"~"^(restaurant|fast_food|food_court|cafe|ice_cream)$"]["cuisine"~"vegetarian|vegan|chay|an chay|eatery",i](around:${radius},${location});
+      way["amenity"~"^(restaurant|fast_food|food_court|cafe|ice_cream)$"]["cuisine"~"vegetarian|vegan|chay|an chay|eatery",i](around:${radius},${location});
+      node["amenity"~"^(restaurant|fast_food|food_court|cafe|ice_cream)$"]["name"~"chay|vegetarian|vegan|ăn chay|an chay",i](around:${radius},${location});
+      way["amenity"~"^(restaurant|fast_food|food_court|cafe|ice_cream)$"]["name"~"chay|vegetarian|vegan|ăn chay|an chay",i](around:${radius},${location});
+    );out center tags 60;`;
   }
-  const amenities = 'restaurant|fast_food|food_court|ice_cream|cafe';
-  return `[out:json][timeout:12];(node["amenity"~"^(${amenities})$"](around:${radius},${location});way["amenity"~"^(${amenities})$"](around:${radius},${location}););out center tags 60;`;
+
+  return `[out:json][timeout:25];(
+    node["amenity"~"^(restaurant|fast_food|food_court|cafe|ice_cream)$"](around:${radius},${location});
+    way["amenity"~"^(restaurant|fast_food|food_court|cafe|ice_cream)$"](around:${radius},${location});
+  );out center tags 60;`;
 }
 
 async function searchOverpass(
@@ -441,21 +449,102 @@ async function searchOverpass(
       osmId: element.id,
       tags,
     });
-  }).filter((place): place is Place => place !== null && place.isFoodPlace
-    && (type === 'all' || (type === 'vegetarian'
-      && (/(^|;)\s*(vegetarian|vegan)\s*(;|$)/i.test(place.cuisine)
-        || /\b(chay|vegetarian|vegan)\b/i.test(place.name)))))
-    .map((place) => withDistance(place, center))
+  }).filter((place): place is Place => {
+    if (place === null || !place.isFoodPlace) return false;
+    if (type === 'all') return true;
+
+    const combinedText = `${place.name} ${place.address} ${place.cuisine}`.toLowerCase();
+    const dietFlags = [
+      place.tags['diet:vegan'],
+      place.tags['diet:vegetarian'],
+      place.tags.vegan,
+      place.tags.vegetarian,
+    ].filter(Boolean).join(' ');
+    const vegetarianText = `${combinedText} ${dietFlags}`;
+
+    return /\b(vegetarian|vegan|chay|ăn chay|an chay)\b/i.test(vegetarianText)
+      || /(^|;|\s)(vegetarian|vegan)(;|\s|$)/i.test(place.cuisine)
+      || /\b(vegetarian|vegan|chay|ăn chay|an chay)\b/i.test(place.name);
+  }).map((place) => withDistance(place, center))
     .filter((place) => place.distance <= radius)
     .sort((a, b) => a.distance - b.distance);
+}
+
+function isVegetarianLike(place: Pick<Place, 'name' | 'address' | 'cuisine' | 'tags'>): boolean {
+  const haystack = `${place.name ?? ''} ${place.address ?? ''} ${place.cuisine ?? ''} ${[
+    place.tags?.['diet:vegan'],
+    place.tags?.['diet:vegetarian'],
+    place.tags?.vegan,
+    place.tags?.vegetarian,
+    place.tags?.cuisine,
+  ].filter(Boolean).join(' ')}`.toLowerCase();
+
+  return /\b(vegetarian|vegan|chay|ăn chay|an chay|đồ chay|do chay)\b/i.test(haystack)
+    || /(^|;|\s)(vegetarian|vegan)(;|\s|$)/i.test(place.cuisine || '');
 }
 
 export async function searchNearbyPlaces(
   center: Coordinates,
   radius: number,
   signal?: AbortSignal,
-): Promise<{ places: Place[]; source: 'OpenStreetMap' | 'Photon' }> {
-  return { places: await searchOverpass(center, radius, 'vegetarian', signal), source: 'OpenStreetMap' };
+): Promise<{ places: Place[]; source: 'Google Maps' | 'Fallback' }> {
+  const query = new URLSearchParams({
+    lat: String(center.lat),
+    lng: String(center.lng),
+    radius: String(radius),
+  });
+
+  const response = await fetch(`/api/explore?${query}`, {
+    signal,
+    headers: { Accept: 'application/json' },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Explore API phản hồi HTTP ${response.status}.`);
+  }
+
+  const payload = await response.json() as {
+    places?: Place[];
+    source?: 'Google Maps' | 'Fallback';
+    elements?: unknown[];
+  };
+
+  if (Array.isArray(payload.places) && payload.places.length) {
+    return {
+      places: payload.places,
+      source: payload.source === 'Fallback' ? 'Fallback' : 'Google Maps',
+    };
+  }
+
+  if (Array.isArray(payload.elements)) {
+    const legacyPlaces = payload.elements.map((element) => {
+      const item = element as Record<string, unknown>;
+      const tags = (item.tags as Record<string, string>) || {};
+      const centerPoint = (item.center as { lat?: number; lon?: number }) || item;
+      const lat = Number((centerPoint as { lat?: number }).lat ?? item.lat ?? 0);
+      const lng = Number((centerPoint as { lon?: number }).lon ?? item.lon ?? 0);
+      const amenity = String(tags.amenity || '');
+      return makePlace({
+        id: `${String(item.type || 'place')}/${String(item.id || `${lat},${lng}`)}`,
+        name: String(tags.name || tags['name:vi'] || tags['addr:full']?.split(',')[0] || 'Địa điểm'),
+        lat,
+        lng,
+        address: tagsAddress(tags),
+        amenity,
+        typeLabel: amenity === 'cafe' ? 'Cà phê' : amenity.replaceAll('_', ' '),
+        osmType: String(item.type || ''),
+        osmId: item.id,
+        tags,
+      });
+    }).filter((place): place is Place => Boolean(place) && place.isFoodPlace)
+      .map((place) => withDistance(place, center))
+      .filter((place) => place.distance <= radius)
+      .sort((a, b) => a.distance - b.distance);
+
+    return { places: legacyPlaces, source: 'Google Maps' };
+  }
+
+  return { places: [], source: 'Fallback' };
 }
 
 export async function searchPlaceAtPoint(

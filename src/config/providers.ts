@@ -6,6 +6,7 @@ export const mapProviders = {
   nominatim: env.VITE_NOMINATIM_API_URL || 'https://nominatim.openstreetmap.org/search',
   overpass: env.VITE_OVERPASS_API_URL || 'https://overpass-api.de/api/interpreter',
   osrm: env.VITE_OSRM_API_URL || 'https://router.project-osrm.org/route/v1/driving',
+  googleMapsApiKey: env.VITE_GOOGLE_MAPS_API_KEY || '',
 };
 
 export const mapAttribution =

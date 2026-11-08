@@ -1,5 +1,6 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Place } from '../types/map';
+import { getNearbyExplorePlaces } from './exploreData';
 import { branchSearchTerm, rankPlaceResults, searchNearbyPlaces, searchPlaceBranches } from './places';
 
 function place(name: string, address: string, distance: number): Place {
@@ -23,6 +24,7 @@ function place(name: string, address: string, distance: number): Place {
     distance,
     osmType: '',
     osmId: undefined,
+    tags: {},
   };
 }
 
@@ -119,8 +121,73 @@ describe('searchPlaceBranches', () => {
 });
 
 describe('nearby place search', () => {
+  beforeEach(() => {
+    vi.stubEnv('VITE_GOOGLE_MAPS_API_KEY', 'test-key');
+  });
+
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it('prefers the built-in vegetarian seed data over generic nearby Google restaurants', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      results: [
+        {
+          place_id: 'google-1',
+          name: 'KFC Cần Thơ',
+          geometry: { location: { lat: 10.0448, lng: 105.7772 } },
+          rating: 4.2,
+          user_ratings_total: 50,
+          types: ['restaurant'],
+          vicinity: 'Ninh Kiều, Cần Thơ',
+        },
+      ],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await getNearbyExplorePlaces({ lat: 10.0452, lng: 105.7469 }, 5000);
+
+    expect(result.source).toBe('Fallback');
+    expect(result.places[0].name).toBe('Quán Chay 3/2');
+    expect(result.places.map(({ name }) => name)).toContain('Quán Chay 3/2');
+  });
+
+  it('calls the Explore API proxy and accepts fallback Cần Thơ data', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      places: [
+        {
+          id: 'fallback-1',
+          name: 'Quán chay Cần Thơ',
+          address: 'Ninh Kiều, Cần Thơ',
+          amenity: 'restaurant',
+          lat: 10.0452,
+          lng: 105.7469,
+          isFoodPlace: true,
+          isVegetarian: true,
+          brand: '',
+          typeLabel: 'Quán ăn',
+          isApproximate: false,
+          cuisine: 'vegetarian',
+          openingHours: '08:00-21:00',
+          phone: '',
+          website: '',
+          price: '200k-400k',
+          distance: 0,
+          osmType: 'fallback',
+          osmId: 'fallback-1',
+        },
+      ],
+      source: 'Fallback',
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await searchNearbyPlaces({ lat: 10.0452, lng: 105.7469 }, 6500);
+
+    expect(result.source).toBe('Fallback');
+    expect(result.places.map(({ name }) => name)).toEqual(['Quán chay Cần Thơ']);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/api/explore');
   });
 
   it('returns only nearby places tagged vegetarian or named chay', async () => {
@@ -148,7 +215,8 @@ describe('nearby place search', () => {
     expect(result.places[0]).toMatchObject({ lat: 10.0452, lng: 105.7469 });
     expect(result.places[0]).toMatchObject({ isVegetarian: true, brand: '' });
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const requestUrl = new URL(String(fetchMock.mock.calls[0][0]));
-    expect(requestUrl.searchParams.get('data')).toContain('vegetarian|vegan');
+    const requestUrl = new URL(String(fetchMock.mock.calls[0][0]), 'http://localhost');
+    expect(requestUrl.pathname).toBe('/api/explore');
+    expect(requestUrl.searchParams.get('radius')).toBe('6500');
   });
 });

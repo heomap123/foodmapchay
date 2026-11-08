@@ -7,7 +7,7 @@ export interface LocationSelection {
 
 export const LOCATION_TREE: Record<string, Record<string, string[]>> = {
   'Cần Thơ': {
-    'Ninh Kiều': ['An Hòa', 'An Khánh', 'Cái Khế', 'Thới Bình', 'Tân An', 'Xuân Khánh'],
+    'Ninh Kiều': ['An Hòa', 'An Khánh', 'An Bình', 'Cái Khế', 'Thới Bình', 'Tân An', 'Xuân Khánh'],
     'Bình Thủy': ['An Thới', 'Bình Thủy', 'Thới An', 'Thới Nhựt', 'Trà Nóc'],
     'Ô Môn': ['Châu Văn Liêm', 'Thới Hòa', 'Trường Lạc', 'Thới An', 'Thạnh Phú'],
     'Cái Răng': ['Ba Láng', 'Hưng Phú', 'Lê Bình', 'Tân Hưng', 'Thường Thạnh'],
@@ -44,15 +44,28 @@ export function buildLocationLabel(selection: LocationSelection): string {
 
 export function matchesLocationFilter(address: string, selection: LocationSelection): boolean {
   const normalizedAddress = normalizeLocationToken(address);
-  const selectedValues = [selection.point, selection.ward, selection.district].filter(Boolean).map((value) => normalizeLocationToken(value));
+  const province = normalizeLocationToken(selection.province);
+  const selectedValues = [selection.point, selection.ward, selection.district]
+    .filter(Boolean)
+    .map((value) => normalizeLocationToken(value));
 
-  if (selectedValues.length === 0) {
-    const province = normalizeLocationToken(selection.province);
-    return !province || normalizedAddress.includes(province) || normalizedAddress.includes(province.replace(/\s+/g, ''));
+  if (!normalizedAddress) {
+    return !province || selectedValues.length === 0;
   }
 
-  return selectedValues.some((value) => {
+  const provinceMatch = !province || normalizedAddress.includes(province)
+    || normalizedAddress.includes(province.replace(/\s+/g, ''));
+
+  if (selectedValues.length === 0) {
+    return provinceMatch;
+  }
+
+  const explicitMatch = selectedValues.some((value) => {
     if (!value) return false;
     return normalizedAddress.includes(value) || normalizedAddress.includes(value.replace(/\s+/g, ''));
   });
+
+  if (explicitMatch) return true;
+
+  return provinceMatch;
 }

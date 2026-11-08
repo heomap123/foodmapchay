@@ -47,6 +47,12 @@ describe('coordinate conversions', () => {
       ward: 'Thới An',
       point: 'Đường Trần Hưng Đạo',
     })).toBe(true);
+    expect(matchesLocationFilter('Cần Thơ', {
+      province: 'Cần Thơ',
+      district: 'Ninh Kiều',
+      ward: 'An Hòa',
+      point: '',
+    })).toBe(true);
   });
 
   it('converts GeoJSON longitude, latitude coordinates', () => {

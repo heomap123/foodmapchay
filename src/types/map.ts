@@ -21,6 +21,7 @@ export interface Place extends Coordinates {
   distance: number;
   osmType: string;
   osmId: string | number | undefined;
+  tags: Record<string, string>;
 }
 
 export interface RouteResult {
