@@ -1,4 +1,4 @@
-import { getNearbyExplorePlaces } from '../src/services/exploreData';
+import { getNearbyExplorePlaces } from '../src/services/exploreData.js';
 
 export default async function handler(request: Request): Promise<Response> {
   const url = new URL(request.url);

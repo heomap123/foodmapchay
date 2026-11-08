@@ -1,4 +1,6 @@
-import type { Coordinates, Place } from '../types/map';
+/// <reference types="vite/client" />
+
+import type { Coordinates, Place } from '../types/map.js';
 
 const foodAmenities = new Set(['restaurant', 'fast_food', 'food_court', 'ice_cream', 'cafe']);
 
