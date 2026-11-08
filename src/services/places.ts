@@ -470,19 +470,6 @@ async function searchOverpass(
     .sort((a, b) => a.distance - b.distance);
 }
 
-function isVegetarianLike(place: Pick<Place, 'name' | 'address' | 'cuisine' | 'tags'>): boolean {
-  const haystack = `${place.name ?? ''} ${place.address ?? ''} ${place.cuisine ?? ''} ${[
-    place.tags?.['diet:vegan'],
-    place.tags?.['diet:vegetarian'],
-    place.tags?.vegan,
-    place.tags?.vegetarian,
-    place.tags?.cuisine,
-  ].filter(Boolean).join(' ')}`.toLowerCase();
-
-  return /\b(vegetarian|vegan|chay|ăn chay|an chay|đồ chay|do chay)\b/i.test(haystack)
-    || /(^|;|\s)(vegetarian|vegan)(;|\s|$)/i.test(place.cuisine || '');
-}
-
 export async function searchNearbyPlaces(
   center: Coordinates,
   radius: number,
@@ -533,10 +520,10 @@ export async function searchNearbyPlaces(
         amenity,
         typeLabel: amenity === 'cafe' ? 'Cà phê' : amenity.replaceAll('_', ' '),
         osmType: String(item.type || ''),
-        osmId: item.id,
+        osmId: typeof item.id === 'string' || typeof item.id === 'number' ? item.id : undefined,
         tags,
       });
-    }).filter((place): place is Place => Boolean(place) && place.isFoodPlace)
+    }).filter((place): place is Place => place !== null && place.isFoodPlace)
       .map((place) => withDistance(place, center))
       .filter((place) => place.distance <= radius)
       .sort((a, b) => a.distance - b.distance);

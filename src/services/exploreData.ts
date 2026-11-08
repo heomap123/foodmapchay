@@ -1,7 +1,6 @@
 import type { Coordinates, Place } from '../types/map';
 
 const foodAmenities = new Set(['restaurant', 'fast_food', 'food_court', 'ice_cream', 'cafe']);
-const vegetarianPattern = /\b(vegetarian|vegan|chay|ăn chay|an chay|đồ chay|do chay)\b/i;
 
 function googleMapsApiKey(): string {
   const env = typeof import.meta !== 'undefined' ? import.meta.env : undefined;
@@ -151,11 +150,6 @@ function toPlace(item: VegetarianSeedPlace): Place {
     osmId: item.osmId,
     tags,
   };
-}
-
-function isVegetarianLikePlace(place: Pick<Place, 'name' | 'address' | 'cuisine' | 'tags'>): boolean {
-  const haystack = `${place.name} ${place.address} ${place.cuisine} ${Object.values(place.tags).join(' ')}`.toLowerCase();
-  return vegetarianPattern.test(haystack);
 }
 
 function seedPlacesNearCenter(center: Coordinates, radius: number): Place[] {
